@@ -1032,17 +1032,20 @@ contract SpaceshipSkinNFT is Ownable, ERC721A {
     event ClaimNFT(address indexed claimer, uint256 amount);
     event BuyNFT(address indexed buyer, uint256 amount);
 
+    //set withdraw wallet address
+    address public withdrawWallet;
+
     // sola token contract address
     address public solaTokenAddress;
 
     // processor wallet for signature verification
-    address processor_wallet;
+    address public processor_wallet;
 
     // nft baseURI
     string public baseURI;
 
     // mapping to save the tokenID per UUID
-    mapping(string => uint256) token_uuids;
+    mapping(string => uint256) public token_uuids;
 
     // confirmed signatures
     mapping(bytes => bool) verifiedHash;
@@ -1067,9 +1070,9 @@ contract SpaceshipSkinNFT is Ownable, ERC721A {
     modifier isValidHash(
         string[] calldata _skins,
         string[] calldata _uuids,
-        uint256 _expired_at,
+        string memory _expired_at,
         bytes memory _signature,
-        address _claimer,
+        string memory _claimer,
         string memory _sola_amount,
         string memory _eth_amount
     ) {
@@ -1077,15 +1080,13 @@ contract SpaceshipSkinNFT is Ownable, ERC721A {
             verifiedHash[_signature] != true,
             "You can't use this signature"
         );
-        string memory claimer = Strings.toHexString(_claimer);
         uint256 amount = _uuids.length;
-        string memory skin_uuid = concatArrys(_skins, _uuids);
+        string memory skin_uuid = this.concatArrays(_skins, _uuids);
         bytes32 hash = keccak256(
             abi.encodePacked(
                 skin_uuid,
                 _expired_at,
-                claimer,
-                _signature,
+                _claimer,
                 _sola_amount,
                 _eth_amount
             )
@@ -1100,10 +1101,13 @@ contract SpaceshipSkinNFT is Ownable, ERC721A {
     /**
      * @dev TheSolaVerse: Admin mint.
      */
-    function adminMint(address _to, uint256 _num_tokens) public onlyOwner {
-        require(_num_tokens > 0, "SSN : Invalid amount");
-        _safeMint(_to, _num_tokens);
-        emit AdminMint(msg.sender, _num_tokens);
+    function adminMint(address _to, string[] calldata _uuids) public onlyOwner {
+        uint256 num_tokens = _uuids.length;
+        require(num_tokens > 0, "SSN : Invalid amount");
+        _safeMint(_to, num_tokens);
+        uint256 currentTokenID = totalSupply();
+        saveTokenID(currentTokenID, _uuids);
+        emit AdminMint(msg.sender, num_tokens);
     }
 
     /**
@@ -1124,8 +1128,18 @@ contract SpaceshipSkinNFT is Ownable, ERC721A {
      * @dev TheSolaVerse: Withdraw the balance from the contract.
      */
     function withdraw() public onlyOwner nonReentrant whenNotPaused {
-        require(address(this).balance > 0, "SSN : Balance is not enough");
-        payable(msg.sender).transfer(address(this).balance);
+        require(address(this).balance > 0, "SSN : Not enough ETH");
+        require(
+            ISOLA(solaTokenAddress).balanceOf(address(this)) > 0,
+            "SSN : Not enough SOLA"
+        );
+
+        //transfer all ETH and SOLA to the withdrawWallet
+        payable(withdrawWallet).transfer(address(this).balance);
+        ISOLA(solaTokenAddress).transfer(
+            (withdrawWallet),
+            ISOLA(solaTokenAddress).balanceOf(address(this))
+        );
     }
 
     /**
@@ -1134,8 +1148,9 @@ contract SpaceshipSkinNFT is Ownable, ERC721A {
     function claimNFT(
         string[] calldata _skins,
         string[] calldata _uuids,
-        uint256 _expired_at,
-        bytes memory _signed_message
+        string memory _expired_at,
+        bytes memory _signed_message,
+        string memory claimer
     )
         external
         payable
@@ -1145,15 +1160,12 @@ contract SpaceshipSkinNFT is Ownable, ERC721A {
             _uuids,
             _expired_at,
             _signed_message,
-            msg.sender,
+            claimer,
             "",
             ""
         )
     {
-        uint256 num_tokens;
-        {
-            num_tokens = _uuids.length;
-        }
+        uint256 num_tokens = _uuids.length;
 
         require(num_tokens > 0, "SSN: Invalid amount");
 
@@ -1173,8 +1185,9 @@ contract SpaceshipSkinNFT is Ownable, ERC721A {
         string[] calldata _uuids,
         uint256 _sola_amount,
         uint256 _eth_amount,
-        uint256 _expired_at,
-        bytes memory _signed_message
+        string memory _expired_at,
+        bytes memory _signed_message,
+        string memory buyer
     )
         external
         payable
@@ -1184,7 +1197,7 @@ contract SpaceshipSkinNFT is Ownable, ERC721A {
             _uuids,
             _expired_at,
             _signed_message,
-            msg.sender,
+            buyer,
             Strings.toString(_sola_amount),
             Strings.toString(_eth_amount)
         )
@@ -1195,13 +1208,17 @@ contract SpaceshipSkinNFT is Ownable, ERC721A {
         if (_sola_amount > 0) {
             ISOLA(solaTokenAddress).transferFrom(
                 msg.sender,
-                address(this),
+                withdrawWallet,
                 num_tokens
             );
         }
 
         if (_eth_amount > 0) {
-            require(msg.value == _eth_amount, "SSN: Invaild amount of ETH");
+            require(
+                msg.value == _eth_amount && msg.value == _eth_amount,
+                "SSN: Invaild amount of ETH"
+            );
+            payable(withdrawWallet).transfer(address(this).balance);
         }
 
         _safeMint(msg.sender, num_tokens);
@@ -1219,6 +1236,10 @@ contract SpaceshipSkinNFT is Ownable, ERC721A {
         processor_wallet = _processor_wallet;
     }
 
+    function setWithdrawWallet(address _withdraw_wallet) external onlyOwner {
+        withdrawWallet = _withdraw_wallet;
+    }
+
     /**
      * @dev TheSolaVerse: Set the sola token address
      */
@@ -1229,10 +1250,10 @@ contract SpaceshipSkinNFT is Ownable, ERC721A {
     /**
      * @dev TheSolaVerse: Mix two arrays by order
      */
-    function concatArrys(
+    function concatArrays(
         string[] calldata _firstArray,
         string[] calldata _secondArray
-    ) internal pure returns (string memory) {
+    ) external pure returns (string memory) {
         bytes memory output;
 
         for (uint256 i = 0; i < _firstArray.length; i++) {
@@ -1263,15 +1284,5 @@ contract SpaceshipSkinNFT is Ownable, ERC721A {
         returns (uint256)
     {
         return token_uuids[_uuid];
-    }
-
-    function recoverSignature(string memory message , bytes memory signature) external pure returns(address){
-        bytes32 hash = keccak256(
-            abi.encodePacked(
-                message
-            )
-        );
-        address result =  ECDSA.recover(hash, signature);
-        return result;
     }
 }

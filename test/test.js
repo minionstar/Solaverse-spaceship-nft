@@ -70,6 +70,16 @@ describe("Spaceship Skin NFT", () => {
     });
   });
 
+  describe("Pause Mint", () => {
+    it("Pause Mint Success", async () => {
+      await spaceshipNFT.pause();
+      var uuids = ["1", "2", "3", "4", "10"];
+      await expect(
+        spaceshipNFT.connect(owner).adminMint(owner.address, uuids)
+      ).to.be.revertedWith("SSN: Contract was paused.");
+    });
+  });
+
   describe("Claim NFT", async () => {
     it("Claim Success", async () => {
       //signature parameters

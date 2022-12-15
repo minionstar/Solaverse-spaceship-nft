@@ -211,7 +211,7 @@ contract Pausable is Ownable {
      * @dev Modifier to make a function callable only when the contract is not paused.
      */
     modifier whenNotPaused() {
-        require(!paused);
+        require(!paused, "SSN: Contract was paused.");
         _;
     }
 
@@ -219,7 +219,7 @@ contract Pausable is Ownable {
      * @dev Modifier to make a function callable only when the contract is paused.
      */
     modifier whenPaused() {
-        require(paused);
+        require(paused, "SSN: Contract was not paused.");
         _;
     }
 
@@ -1026,7 +1026,7 @@ contract ERC721A is
     ) internal virtual {}
 }
 
-contract SpaceshipSkinNFT is Ownable, ERC721A {
+contract SpaceshipSkinNFT is Ownable, Pausable, ERC721A {
     // events
     event AdminMint(address indexed admin, uint256 amount);
     event ClaimNFT(address indexed claimer, uint256 amount);
@@ -1101,7 +1101,7 @@ contract SpaceshipSkinNFT is Ownable, ERC721A {
     /**
      * @dev TheSolaVerse: Admin mint.
      */
-    function adminMint(address _to, string[] calldata _uuids) public onlyOwner {
+    function adminMint(address _to, string[] calldata _uuids) public onlyOwner whenNotPaused {
         uint256 num_tokens = _uuids.length;
         require(num_tokens > 0, "SSN : Invalid amount");
         _safeMint(_to, num_tokens);
